@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Block Blast</title>
+    <style>
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f0f0; }
+        canvas { border: 1px solid #000; }
+        #score { position: absolute; top: 10px; left: 10px; font-family: Arial, sans-serif; font-size: 20px; }
+    </style>
+</head>
+<body>
+    <div id="score">Score: 0</div>
+    <canvas id="gameCanvas" width="600" height="800"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score');
+
+        const GRID_SIZE = 30;
+        const COLS = canvas.width / GRID_SIZE;
+        const ROWS = canvas.height / GRID_SIZE - 2;
+        const COLORS = ['red', 'blue', 'green', 'yellow', 'purple'];
+        let grid = Array(ROWS).fill().map(() => Array(COLS).fill(null));
+        let shooterPos = { x: canvas.width / 2, y: canvas.height - GRID_SIZE };
+        let currentBall = getRandomBall();
+        let angle = 0;
+        let score = 0;
+        let gameOver = false;
+
+        function getRandomBall() {
+            return { color: COLORS[Math.floor(Math.random() * COLORS.length)] };
+        }
+
+        function drawGrid() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    if (grid[row][col]) {
+                        ctx.beginPath();
+                        ctx.arc(col * GRID_SIZE + GRID_SIZE / 2, row * GRID_SIZE + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
+                        ctx.fillStyle = grid[row][col].color;
+                        ctx.fill();
+                        ctx.closePath();
+                    }
+                }
+            }
+        }
+
+        function drawShooter() {
+            ctx.beginPath();
+            ctx.arc(shooterPos.x, shooterPos.y, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
+            ctx.fillStyle = currentBall.color;
+            ctx.fill();
+            ctx.closePath();
+
+            ctx.beginPath();
+            ctx.moveTo(shooterPos.x, shooterPos.y);
+            ctx.lineTo(shooterPos.x + Math.cos(angle) * 100, shooterPos.y - Math.sin(angle) * 100);
+            ctx.strokeStyle = 'black';
+            ctx.stroke();
+        }
+
+        function shootBall() {
+            let dx = Math.cos(angle) * 5;
+            let dy = -Math.sin(angle) * 5;
+            let x = shooterPos.x;
+            let y = shooterPos.y;
+
+            function move() {
+                x += dx;
+                y += dy;
+                let col = Math.round(x / GRID_SIZE - 0.5);
+                let row = Math.round(y / GRID_SIZE - 0.5);
+
+                if (y <= GRID_SIZE || col < 0 || col >= COLS || (row >= 0 && row < ROWS && grid[row][col])) {
+                    placeBall(col, row);
+                    return;
+                }
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawGrid();
+                ctx.beginPath();
+                ctx.arc(x, y, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
+                ctx.fillStyle = currentBall.color;
+                ctx.fill();
+                drawShooter();
+
+                requestAnimationFrame(move);
+            }
+            move();
+        }
+
+        function placeBall(col, row) {
+            if (col < 0 || col >= COLS) return;
+            if (row < 0) row = 0;
+            if (row >= ROWS) return;
+
+            // Find the lowest free spot in the column
+            while (row > 0 && !grid[row - 1][col]) row--;
+            grid[row][col] = currentBall;
+            checkCombos(row, col);
+            currentBall = getRandomBall();
+            checkGameOver();
+        }
+
+        function checkCombos(row, col) {
+            let color = grid[row][col].color;
+            let visited = new Set();
+            let cluster = [];
+
+            function floodFill(r, c) {
+                if (r < 0 || r >= ROWS || c < 0 || c >= COLS || visited.has(`${r},${c}`) || !grid[r][c] || grid[r][c].color !== color) return;
+                visited.add(`${r},${c}`);
+                cluster.push({ r, c });
+                floodFill(r - 1, c);
+                floodFill(r + 1, c);
+                floodFill(r, c - 1);
+                floodFill(r, c + 1);
+            }
+
+            floodFill(row, col);
+            if (cluster.length >= 3) {
+                cluster.forEach(({ r, c }) => grid[r][c] = null);
+                score += cluster.length * 10;
+                scoreDisplay.textContent = `Score: ${score}`;
+            }
+        }
+
+        function checkGameOver() {
+            for (let col = 0; col < COLS; col++) {
+                if (grid[ROWS - 1][col]) {
+                    gameOver = true;
+                    alert(`Game Over! Final Score: ${score}`);
+                    return;
+                }
+            }
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!gameOver) {
+                let rect = canvas.getBoundingClientRect();
+                let mouseX = e.clientX - rect.left;
+                let mouseY = e.clientY - rect.top;
+                angle = Math.atan2(shooterPos.y - mouseY, mouseX - shooterPos.x);
+            }
+        });
+
+        canvas.addEventListener('click', () => {
+            if (!gameOver) shootBall();
+        });
+
+        function gameLoop() {
+            if (!gameOver) {
+                drawGrid();
+                drawShooter();
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        // Initialize with some blocks
+        for (let i = 0; i < 5; i++) {
+            let row = Math.floor(Math.random() * 5);
+            let col = Math.floor(Math.random() * COLS);
+            if (!grid[row][col]) grid[row][col] = getRandomBall();
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
