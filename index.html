@@ -5,30 +5,62 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Block Blast</title>
     <style>
-        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f0f0; }
-        canvas { border: 1px solid #000; }
-        #score { position: absolute; top: 10px; left: 10px; font-family: Arial, sans-serif; font-size: 20px; }
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #000; }
+        canvas { border: 1px solid #333; }
+        #score { position: absolute; top: 10px; left: 10px; font-family: Arial, sans-serif; font-size: 20px; color: white; }
+        #countdown { position: absolute; top: 10px; right: 10px; font-family: Arial, sans-serif; font-size: 20px; color: white; }
     </style>
 </head>
 <body>
     <div id="score">Score: 0</div>
+    <div id="countdown">Next Drop: 15</div>
     <canvas id="gameCanvas" width="600" height="800"></canvas>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreDisplay = document.getElementById('score');
+        const countdownDisplay = document.getElementById('countdown');
 
-        const GRID_SIZE = 30;
-        const COLS = canvas.width / GRID_SIZE;
-        const ROWS = canvas.height / GRID_SIZE - 2;
+        const GRID_SIZE = 40;
+        const COLS = Math.floor(canvas.width / GRID_SIZE); // 15
+        const ROWS = Math.floor(canvas.height / GRID_SIZE) - 1; // 19
         const COLORS = ['red', 'blue', 'green', 'yellow', 'purple'];
         let grid = Array(ROWS).fill().map(() => Array(COLS).fill(null));
-        let shooterPos = { x: canvas.width / 2, y: canvas.height - GRID_SIZE };
+        let shooterPos = { x: canvas.width / 2, y: canvas.height - GRID_SIZE / 2 };
         let currentBall = getRandomBall();
         let angle = 0;
         let score = 0;
         let gameOver = false;
+        let isShooting = false;
+        let poppingBalls = [];
+        let stars = [];
+        let lastDropTime = Date.now();
+        const DROP_INTERVAL = 15000; // 15 seconds in milliseconds
+
+        function initStars() {
+            for (let i = 0; i < 100; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    radius: Math.random() * 2 + 1,
+                    alpha: Math.random()
+                });
+            }
+        }
+
+        function drawStars() {
+            stars.forEach(star => {
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
+                ctx.fill();
+                ctx.closePath();
+                star.alpha += Math.random() * 0.05 - 0.025;
+                if (star.alpha > 1) star.alpha = 1;
+                if (star.alpha < 0) star.alpha = 0;
+            });
+        }
 
         function getRandomBall() {
             return { color: COLORS[Math.floor(Math.random() * COLORS.length)] };
@@ -36,74 +68,235 @@
 
         function drawGrid() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawStars();
             for (let row = 0; row < ROWS; row++) {
                 for (let col = 0; col < COLS; col++) {
                     if (grid[row][col]) {
-                        ctx.beginPath();
-                        ctx.arc(col * GRID_SIZE + GRID_SIZE / 2, row * GRID_SIZE + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
-                        ctx.fillStyle = grid[row][col].color;
-                        ctx.fill();
-                        ctx.closePath();
+                        draw3DBall(col * GRID_SIZE + GRID_SIZE / 2, row * GRID_SIZE + GRID_SIZE / 2, grid[row][col].color);
                     }
                 }
             }
+            if (gameOver && !isWin()) {
+                drawGameOver();
+            }
+        }
+
+        function drawGameOver() {
+            ctx.font = '40px Arial';
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 20);
+            ctx.font = '20px Arial';
+            ctx.fillText('Press Spacebar to start again', canvas.width / 2, canvas.height / 2 + 20);
         }
 
         function drawShooter() {
-            ctx.beginPath();
-            ctx.arc(shooterPos.x, shooterPos.y, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
-            ctx.fillStyle = currentBall.color;
-            ctx.fill();
-            ctx.closePath();
+            draw3DBall(shooterPos.x, shooterPos.y, currentBall.color);
+
+            const arrowLength = 50;
+            const headLength = 15;
+            const endX = shooterPos.x + Math.cos(angle) * arrowLength;
+            const endY = shooterPos.y - Math.sin(angle) * arrowLength;
 
             ctx.beginPath();
             ctx.moveTo(shooterPos.x, shooterPos.y);
-            ctx.lineTo(shooterPos.x + Math.cos(angle) * 100, shooterPos.y - Math.sin(angle) * 100);
-            ctx.strokeStyle = 'black';
+            ctx.lineTo(endX, endY);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            const angle1 = angle + Math.PI / 6;
+            const angle2 = angle - Math.PI / 6;
+            ctx.beginPath();
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(endX - Math.cos(angle1) * headLength, endY + Math.sin(angle1) * headLength);
+            ctx.moveTo(endX, endY);
+            ctx.lineTo(endX - Math.cos(angle2) * headLength, endY + Math.sin(angle2) * headLength);
             ctx.stroke();
         }
 
+        function drawMovingBall(x, y, color) {
+            draw3DBall(x, y, color);
+        }
+
+        function draw3DBall(x, y, color) {
+            const radius = GRID_SIZE / 2 - 2;
+            const gradient = ctx.createRadialGradient(x - radius / 3, y - radius / 3, radius / 4, x, y, radius);
+            gradient.addColorStop(0, '#ccc');
+            gradient.addColorStop(0.7, color);
+            gradient.addColorStop(1, '#333');
+
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawPoppingBalls() {
+            poppingBalls.forEach(ball => {
+                const gradient = ctx.createRadialGradient(ball.x - ball.radius / 3, ball.y - ball.radius / 3, ball.radius / 4, ball.x, ball.y, ball.radius);
+                gradient.addColorStop(0, '#ccc');
+                gradient.addColorStop(0.7, ball.color);
+                gradient.addColorStop(1, '#333');
+
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                ctx.closePath();
+            });
+        }
+
         function shootBall() {
+            if (gameOver || isShooting) return;
+            isShooting = true;
             let dx = Math.cos(angle) * 5;
             let dy = -Math.sin(angle) * 5;
             let x = shooterPos.x;
             let y = shooterPos.y;
+            let ballColor = currentBall.color;
+            let speed = 5;
+            const RADIUS = GRID_SIZE / 2 - 2;
 
             function move() {
                 x += dx;
                 y += dy;
+
+                if (x <= RADIUS) {
+                    x = RADIUS;
+                    dx = -dx;
+                } else if (x >= canvas.width - RADIUS) {
+                    x = canvas.width - RADIUS;
+                    dx = -dx;
+                }
+
+                if (y <= RADIUS) {
+                    y = RADIUS;
+                    dy = -dy;
+                }
+
                 let col = Math.round(x / GRID_SIZE - 0.5);
                 let row = Math.round(y / GRID_SIZE - 0.5);
 
-                if (y <= GRID_SIZE || col < 0 || col >= COLS || (row >= 0 && row < ROWS && grid[row][col])) {
-                    placeBall(col, row);
-                    return;
+                let shouldStop = false;
+                if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            let r = row + dr;
+                            let c = col + dc;
+                            if (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c]) {
+                                let dxDist = x - (c * GRID_SIZE + GRID_SIZE / 2);
+                                let dyDist = y - (r * GRID_SIZE + GRID_SIZE / 2);
+                                if (Math.hypot(dxDist, dyDist) <= RADIUS * 2) {
+                                    shouldStop = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (shouldStop) break;
+                    }
                 }
 
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                drawGrid();
-                ctx.beginPath();
-                ctx.arc(x, y, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
-                ctx.fillStyle = currentBall.color;
-                ctx.fill();
-                drawShooter();
+                if (shouldStop) {
+                    speed *= 0.85;
+                    dx *= 0.85;
+                    dy *= 0.85;
 
+                    if (speed < 0.3) {
+                        placeBall(x, y);
+                        isShooting = false;
+                        return;
+                    }
+                }
+
+                drawGrid();
+                drawMovingBall(x, y, ballColor);
+                drawShooter();
+                drawPoppingBalls();
                 requestAnimationFrame(move);
             }
             move();
         }
 
-        function placeBall(col, row) {
-            if (col < 0 || col >= COLS) return;
-            if (row < 0) row = 0;
-            if (row >= ROWS) return;
+        function placeBall(x, y) {
+            let col = Math.round(x / GRID_SIZE - 0.5);
+            let row = Math.round(y / GRID_SIZE - 0.5);
 
-            // Find the lowest free spot in the column
-            while (row > 0 && !grid[row - 1][col]) row--;
+            if (col < 0 || col >= COLS || row < 0 || row >= ROWS) {
+                isShooting = false;
+                currentBall = getRandomBall();
+                return;
+            }
+
+            const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            let attached = false;
+
+            for (let [dr, dc] of directions) {
+                let newRow = row + dr;
+                let newCol = col + dc;
+                if (newRow >= 0 && newRow < ROWS && newCol >= 0 && newCol < COLS && grid[newRow][newCol]) {
+                    attached = true;
+                    break;
+                }
+            }
+
+            if (!attached && row > 0) {
+                while (row < ROWS && !grid[row][col]) row++;
+                row--;
+                if (row < 0) {
+                    isShooting = false;
+                    currentBall = getRandomBall();
+                    return;
+                }
+            }
+
+            if (grid[row][col]) {
+                for (let [dr, dc] of directions) {
+                    let newRow = row + dr;
+                    let newCol = col + dc;
+                    if (newRow >= 0 && newRow < ROWS && newCol >= 0 && newCol < COLS && !grid[newRow][newCol]) {
+                        grid[newRow][newCol] = currentBall;
+                        checkCombos(newRow, newCol);
+                        checkDetached();
+                        currentBall = getRandomBall();
+                        checkGameOver();
+                        return;
+                    }
+                }
+                isShooting = false;
+                currentBall = getRandomBall();
+                return;
+            }
+
             grid[row][col] = currentBall;
             checkCombos(row, col);
+            checkDetached();
             currentBall = getRandomBall();
             checkGameOver();
+        }
+
+        function addNewRow() {
+            for (let row = ROWS - 1; row > 0; row--) {
+                for (let col = 0; col < COLS; col++) {
+                    grid[row][col] = grid[row - 1][col];
+                }
+            }
+            for (let col = 0; col < COLS; col++) {
+                grid[0][col] = getRandomBall();
+            }
+            lastDropTime = Date.now();
+            checkGameOver();
+        }
+
+        function updateCountdown() {
+            if (gameOver) return;
+            const timeElapsed = Date.now() - lastDropTime;
+            const timeLeft = Math.max(0, Math.floor((DROP_INTERVAL - timeElapsed) / 1000));
+            countdownDisplay.textContent = `Next Drop: ${timeLeft}`;
+            if (timeElapsed >= DROP_INTERVAL) {
+                addNewRow();
+            }
         }
 
         function checkCombos(row, col) {
@@ -123,20 +316,135 @@
 
             floodFill(row, col);
             if (cluster.length >= 3) {
+                animatePop(cluster, color);
                 cluster.forEach(({ r, c }) => grid[r][c] = null);
                 score += cluster.length * 10;
                 scoreDisplay.textContent = `Score: ${score}`;
+                checkWin();
             }
+        }
+
+        function checkDetached() {
+            let visited = new Set();
+            let attached = new Set();
+
+            function floodFillAttached(r, c) {
+                if (r < 0 || r >= ROWS || c < 0 || c >= COLS || visited.has(`${r},${c}`) || !grid[r][c]) return;
+                visited.add(`${r},${c}`);
+                attached.add(`${r},${c}`);
+                floodFillAttached(r - 1, c);
+                floodFillAttached(r + 1, c);
+                floodFillAttached(r, c - 1);
+                floodFillAttached(r, c + 1);
+            }
+
+            for (let col = 0; col < COLS; col++) {
+                if (grid[0][col]) floodFillAttached(0, col);
+            }
+
+            let detached = [];
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    if (grid[row][col] && !attached.has(`${row},${col}`)) {
+                        detached.push({ r: row, c: col });
+                    }
+                }
+            }
+
+            if (detached.length > 0) {
+                detached.forEach(({ r, c }) => {
+                    animatePop([{ r, c }], grid[r][c].color);
+                    grid[r][c] = null;
+                    score += 10;
+                });
+                scoreDisplay.textContent = `Score: ${score}`;
+                checkWin();
+            }
+        }
+
+        function checkWin() {
+            let remainingBalls = 0;
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    if (grid[row][col]) remainingBalls++;
+                }
+            }
+            if (remainingBalls === 0 && !gameOver) {
+                gameOver = true;
+                alert(`You Win! Final Score: ${score}`);
+            }
+        }
+
+        function isWin() {
+            let remainingBalls = 0;
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    if (grid[row][col]) remainingBalls++;
+                }
+            }
+            return remainingBalls === 0;
+        }
+
+        function animatePop(cluster, color) {
+            cluster.forEach(({ r, c }) => {
+                poppingBalls.push({
+                    x: c * GRID_SIZE + GRID_SIZE / 2,
+                    y: r * GRID_SIZE + GRID_SIZE / 2,
+                    radius: GRID_SIZE / 2 - 2,
+                    color: color,
+                    phase: 'expand',
+                    expandSpeed: 2,
+                    shrinkSpeed: 3
+                });
+            });
+
+            function animate() {
+                poppingBalls = poppingBalls.map(ball => {
+                    if (ball.phase === 'expand') {
+                        ball.radius += ball.expandSpeed;
+                        if (ball.radius >= (GRID_SIZE / 2 - 2) * 1.2) {
+                            ball.phase = 'shrink';
+                        }
+                    } else if (ball.phase === 'shrink') {
+                        ball.radius -= ball.shrinkSpeed;
+                    }
+                    return ball;
+                }).filter(ball => ball.radius > 0);
+
+                if (poppingBalls.length > 0) {
+                    requestAnimationFrame(animate);
+                }
+            }
+            animate();
         }
 
         function checkGameOver() {
             for (let col = 0; col < COLS; col++) {
-                if (grid[ROWS - 1][col]) {
+                if (grid[ROWS - 1][col] && !gameOver) {
                     gameOver = true;
-                    alert(`Game Over! Final Score: ${score}`);
                     return;
                 }
             }
+        }
+
+        function resetGame() {
+            grid = Array(ROWS).fill().map(() => Array(COLS).fill(null));
+            shooterPos = { x: canvas.width / 2, y: canvas.height - GRID_SIZE / 2 };
+            currentBall = getRandomBall();
+            angle = 0;
+            score = 0;
+            gameOver = false;
+            isShooting = false;
+            poppingBalls = [];
+            lastDropTime = Date.now();
+            scoreDisplay.textContent = `Score: ${score}`;
+            countdownDisplay.textContent = `Next Drop: 15`;
+            for (let row = 0; row < 7; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    grid[row][col] = getRandomBall();
+                }
+            }
+            gameLoop();
         }
 
         canvas.addEventListener('mousemove', (e) => {
@@ -152,21 +460,33 @@
             if (!gameOver) shootBall();
         });
 
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && gameOver && !isWin()) {
+                resetGame();
+            }
+        });
+
         function gameLoop() {
             if (!gameOver) {
                 drawGrid();
                 drawShooter();
+                drawPoppingBalls();
+                updateCountdown();
                 requestAnimationFrame(gameLoop);
+            } else if (!isWin()) {
+                drawGrid();
+                drawShooter();
+                drawPoppingBalls();
             }
         }
 
-        // Initialize with some blocks
-        for (let i = 0; i < 5; i++) {
-            let row = Math.floor(Math.random() * 5);
-            let col = Math.floor(Math.random() * COLS);
-            if (!grid[row][col]) grid[row][col] = getRandomBall();
+        for (let row = 0; row < 7; row++) {
+            for (let col = 0; col < COLS; col++) {
+                grid[row][col] = getRandomBall();
+            }
         }
 
+        initStars();
         gameLoop();
     </script>
 </body>
